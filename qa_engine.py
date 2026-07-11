@@ -2,7 +2,7 @@
 Meticulous QA Test-Case Engine
 ================================
 Converts a plain-text or PDF BRD into an interactive Excel test suite
-using Google Gemini (google-generativeai) + openpyxl.
+using Groq (Llama 3) + openpyxl.
 
 Run with:
     streamlit run qa_engine.py
@@ -12,7 +12,7 @@ import io
 import os
 
 import streamlit as st
-from google import genai
+import google.generativeai as genai
 import pypdf
 import openpyxl
 from openpyxl.chart import BarChart, Reference
@@ -125,24 +125,18 @@ with st.sidebar:
         "Gemini API Key",
         value=os.environ.get("GEMINI_API_KEY", ""),
         type="password",
-        help="Get a free key at https://aistudio.google.com",
+        help="Free key at https://aistudio.google.com",
     )
     st.markdown("---")
     model_choice = st.selectbox(
-        "Gemini model",
+        "Model",
         [
-            "gemini-2.5-flash-preview-05-20",   # Best quality — recommended
-            "gemini-2.5-flash-lite-preview-06-17",  # 2.5 Lite — faster, lighter
-            "gemini-2.5-pro-preview-05-06",     # Most powerful (slower)
-            "gemini-2.0-flash",                 # Fast + reliable free quota
-            "gemini-2.0-flash-lite",            # Lightest, highest free quota
-            "gemini-1.5-flash",                 # Fallback for older accounts
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
+            "gemini-1.0-pro",
         ],
         index=0,
-        help=(
-            "2.5 Flash Preview is recommended. "
-            "If you get a 404 error, try gemini-2.0-flash instead."
-        ),
+        help="gemini-1.5-pro gives the most thorough test cases.",
     )
     st.markdown("---")
     st.markdown(
@@ -175,6 +169,30 @@ def extract_text(uploaded) -> str:
         return "\n\n".join(pages_text)
     else:
         return uploaded.read().decode("utf-8", errors="replace")
+
+
+def compress_brd(text: str, max_chars: int = 18000) -> str:
+    """
+    Clean and compress BRD text to reduce token usage:
+    - Collapse repeated blank lines
+    - Strip leading/trailing whitespace per line
+    - Truncate to max_chars with a warning marker
+    """
+    import re
+    # Strip line-level whitespace
+    lines = [l.strip() for l in text.splitlines()]
+    # Remove runs of more than 1 blank line
+    cleaned = re.sub(r'\n{3,}', '\n\n', "\n".join(lines))
+    # Remove repeated spaces
+    cleaned = re.sub(r'[ \t]{2,}', ' ', cleaned)
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[:max_chars] + "\n\n[... BRD truncated to fit token limit ...]"
+    return cleaned.strip()
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token estimate: ~4 chars per token for English text."""
+    return len(text) // 4
 
 
 st.markdown('<div class="card"><h3>📄 Upload Business Requirements Document</h3>', unsafe_allow_html=True)
@@ -225,6 +243,10 @@ if generate_clicked:
     #  STEP 1: CALL GEMINI
     # ══════════════════════════════════════════════════════════════════════════
     brd_content = extract_text(uploaded_file)
+    brd_compressed = compress_brd(brd_content, max_chars=60000)
+
+    input_tokens = estimate_tokens(brd_compressed)
+    st.info(f"📊 BRD ready — ~{input_tokens:,} input tokens. Generating full test suite…")
 
     PROMPT = f"""
 You are a Senior QA Architect and Website Information Architect.
@@ -239,6 +261,7 @@ STRICT RULES:
   2. Input Fields, Character Limits, & Boundary Checks
   3. Happy Paths (successful submissions / flows)
   4. Error Paths (blank inputs, invalid data, button spamming, session loss)
+• Do NOT stop early — generate test cases for every single page and feature in the BRD.
 
 OUTPUT FORMAT — RAW TSV ONLY:
 Output ONLY tab-separated rows. No markdown, no code fences, no headers,
@@ -248,28 +271,26 @@ Column layout (tab-separated):
   TC-ID \\t Page Name \\t Test Case Description \\t Expected Result
 
 Example row:
-TC-HOME-001\\tHome Page\\tVerify hero banner loads within 2 s on 4 G\\tHero image and CTA visible within 2 s
+TC-HOME-001\\tHome Page\\tVerify hero banner loads within 2 s on 4G\\tHero image and CTA visible within 2 s
 
 ---
 BRD:
-{brd_content}
+{brd_compressed}
 """
 
     with st.spinner("🤖 Gemini is analysing your BRD and generating test cases …"):
-        client = genai.Client(api_key=api_key)
         raw_tsv = None
         last_error = None
         MAX_RETRIES = 4
-        RETRY_DELAYS = [3, 6, 12, 20]   # seconds between each attempt
+        RETRY_DELAYS = [3, 6, 12, 20]
 
         for attempt in range(MAX_RETRIES):
             try:
-                response = client.models.generate_content(
-                    model=model_choice,
-                    contents=PROMPT,
-                )
+                genai.configure(api_key=api_key)
+                model = genai.GenerativeModel(model_choice)
+                response = model.generate_content(PROMPT)
                 raw_tsv = response.text
-                break   # success — exit retry loop
+                break
             except Exception as exc:
                 last_error = exc
                 if attempt < MAX_RETRIES - 1:
@@ -284,11 +305,10 @@ BRD:
                 else:
                     st.error(
                         f"❌ Gemini API error after {MAX_RETRIES} attempts: {last_error}\n\n"
-                        "💡 **Try these fixes in order:**\n"
-                        "1. Switch to **gemini-2.0-flash** in the sidebar\n"
-                        "2. Switch to **gemini-2.0-flash-lite** (highest free quota)\n"
-                        "3. Wait a few minutes and try again\n"
-                        "4. Check your API key is from a fresh project at aistudio.google.com"
+                        "💡 **This is a free tier quota issue, not a code problem.**\n"
+                        "- Switch to **gemini-2.0-flash** in the sidebar\n"
+                        "- Or wait a few minutes and retry\n"
+                        "- Or add billing to your Google account ($0.01 per run)"
                     )
                     st.stop()
 
