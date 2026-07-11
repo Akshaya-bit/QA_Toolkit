@@ -12,7 +12,7 @@ import io
 import os
 
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 import pypdf
 import openpyxl
 from openpyxl.chart import BarChart, Reference
@@ -130,7 +130,7 @@ with st.sidebar:
     st.markdown("---")
     model_choice = st.selectbox(
         "Gemini model",
-        ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"],
+        ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
         index=0,
     )
     st.markdown("---")
@@ -246,9 +246,11 @@ BRD:
 
     with st.spinner("🤖 Gemini is analysing your BRD and generating test cases …"):
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel(model_choice)
-            response = model.generate_content(PROMPT)
+            client = genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model_choice,
+                contents=PROMPT,
+            )
             raw_tsv: str = response.text
         except Exception as exc:
             st.error(f"❌ Gemini API error: {exc}")
