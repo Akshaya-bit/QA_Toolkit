@@ -1,6 +1,5 @@
 streamlit
-google-generativeai
+anthropic
 openpyxl
 pypdf
 pandas
- 
