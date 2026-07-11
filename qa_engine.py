@@ -2,7 +2,7 @@
 Meticulous QA Test-Case Engine
 ================================
 Converts a plain-text or PDF BRD into an interactive Excel test suite
-using Google Gemini (google-genai) + openpyxl.
+using Google Gemini (google-generativeai) + openpyxl.
 
 Run with:
     streamlit run qa_engine.py
@@ -12,8 +12,8 @@ import io
 import os
 
 import streamlit as st
-from google import genai
-import pdfplumber
+import google.generativeai as genai
+import pypdf
 import openpyxl
 from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import (
@@ -130,7 +130,7 @@ with st.sidebar:
     st.markdown("---")
     model_choice = st.selectbox(
         "Gemini model",
-        ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
+        ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"],
         index=0,
     )
     st.markdown("---")
@@ -149,15 +149,17 @@ def extract_text(uploaded) -> str:
     name = uploaded.name.lower()
     if name.endswith(".pdf"):
         raw_bytes = uploaded.read()
-        with pdfplumber.open(io.BytesIO(raw_bytes)) as pdf:
-            pages_text = []
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    pages_text.append(text)
+        reader = pypdf.PdfReader(io.BytesIO(raw_bytes))
+        pages_text = []
+        for page in reader.pages:
+            text = page.extract_text()
+            if text and text.strip():
+                pages_text.append(text.strip())
         if not pages_text:
-            st.error("❌ Could not extract text from this PDF. "
-                     "It may be a scanned image — try a text-based PDF.")
+            st.error(
+                "❌ Could not extract text from this PDF. "
+                "It may be a scanned image — please use a text-based PDF."
+            )
             st.stop()
         return "\n\n".join(pages_text)
     else:
@@ -244,11 +246,9 @@ BRD:
 
     with st.spinner("🤖 Gemini is analysing your BRD and generating test cases …"):
         try:
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=model_choice,
-                contents=PROMPT,
-            )
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(model_choice)
+            response = model.generate_content(PROMPT)
             raw_tsv: str = response.text
         except Exception as exc:
             st.error(f"❌ Gemini API error: {exc}")
