@@ -12,7 +12,7 @@ import io
 import os
 
 import streamlit as st
-import google.generativeai as genai
+import anthropic
 import pypdf
 import openpyxl
 from openpyxl.chart import BarChart, Reference
@@ -122,21 +122,20 @@ st.markdown(
 with st.sidebar:
     st.markdown("### ⚙️ Configuration")
     api_key = st.text_input(
-        "Gemini API Key",
-        value=os.environ.get("GEMINI_API_KEY", ""),
+        "Anthropic API Key",
+        value=os.environ.get("ANTHROPIC_API_KEY", ""),
         type="password",
-        help="Free key at https://aistudio.google.com",
+        help="From https://console.anthropic.com",
     )
     st.markdown("---")
     model_choice = st.selectbox(
         "Model",
         [
-            "gemini-1.5-pro",
-            "gemini-1.5-flash",
-            "gemini-1.0-pro",
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
         ],
         index=0,
-        help="gemini-1.5-pro gives the most thorough test cases.",
+        help="Haiku is fastest and cheapest. Sonnet is more thorough.",
     )
     st.markdown("---")
     st.markdown(
@@ -278,7 +277,7 @@ BRD:
 {brd_compressed}
 """
 
-    with st.spinner("🤖 Gemini is analysing your BRD and generating test cases …"):
+    with st.spinner("🤖 Analysing your BRD and generating test cases …"):
         raw_tsv = None
         last_error = None
         MAX_RETRIES = 4
@@ -286,10 +285,13 @@ BRD:
 
         for attempt in range(MAX_RETRIES):
             try:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(model_choice)
-                response = model.generate_content(PROMPT)
-                raw_tsv = response.text
+                client = anthropic.Anthropic(api_key=api_key)
+                message = client.messages.create(
+                    model=model_choice,
+                    max_tokens=8096,
+                    messages=[{"role": "user", "content": PROMPT}],
+                )
+                raw_tsv = message.content[0].text
                 break
             except Exception as exc:
                 last_error = exc
@@ -304,11 +306,8 @@ BRD:
                     time.sleep(wait)
                 else:
                     st.error(
-                        f"❌ Gemini API error after {MAX_RETRIES} attempts: {last_error}\n\n"
-                        "💡 **This is a free tier quota issue, not a code problem.**\n"
-                        "- Switch to **gemini-2.0-flash** in the sidebar\n"
-                        "- Or wait a few minutes and retry\n"
-                        "- Or add billing to your Google account ($0.01 per run)"
+                        f"❌ API error after {MAX_RETRIES} attempts: {last_error}\n\n"
+                        "💡 Check your API key at https://console.anthropic.com"
                     )
                     st.stop()
 
