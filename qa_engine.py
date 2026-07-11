@@ -130,8 +130,19 @@ with st.sidebar:
     st.markdown("---")
     model_choice = st.selectbox(
         "Gemini model",
-        ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"],
+        [
+            "gemini-2.5-flash-preview-05-20",   # Best quality — recommended
+            "gemini-2.5-flash-lite-preview-06-17",  # 2.5 Lite — faster, lighter
+            "gemini-2.5-pro-preview-05-06",     # Most powerful (slower)
+            "gemini-2.0-flash",                 # Fast + reliable free quota
+            "gemini-2.0-flash-lite",            # Lightest, highest free quota
+            "gemini-1.5-flash",                 # Fallback for older accounts
+        ],
         index=0,
+        help=(
+            "2.5 Flash Preview is recommended. "
+            "If you get a 404 error, try gemini-2.0-flash instead."
+        ),
     )
     st.markdown("---")
     st.markdown(
@@ -245,16 +256,41 @@ BRD:
 """
 
     with st.spinner("🤖 Gemini is analysing your BRD and generating test cases …"):
-        try:
-            client = genai.Client(api_key=api_key)
-            response = client.models.generate_content(
-                model=model_choice,
-                contents=PROMPT,
-            )
-            raw_tsv: str = response.text
-        except Exception as exc:
-            st.error(f"❌ Gemini API error: {exc}")
-            st.stop()
+        client = genai.Client(api_key=api_key)
+        raw_tsv = None
+        last_error = None
+        MAX_RETRIES = 4
+        RETRY_DELAYS = [3, 6, 12, 20]   # seconds between each attempt
+
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = client.models.generate_content(
+                    model=model_choice,
+                    contents=PROMPT,
+                )
+                raw_tsv = response.text
+                break   # success — exit retry loop
+            except Exception as exc:
+                last_error = exc
+                if attempt < MAX_RETRIES - 1:
+                    wait = RETRY_DELAYS[attempt]
+                    st.toast(
+                        f"⚠️ Gemini busy — retrying in {wait}s "
+                        f"(attempt {attempt + 1}/{MAX_RETRIES})",
+                        icon="⏳",
+                    )
+                    import time
+                    time.sleep(wait)
+                else:
+                    st.error(
+                        f"❌ Gemini API error after {MAX_RETRIES} attempts: {last_error}\n\n"
+                        "💡 **Try these fixes in order:**\n"
+                        "1. Switch to **gemini-2.0-flash** in the sidebar\n"
+                        "2. Switch to **gemini-2.0-flash-lite** (highest free quota)\n"
+                        "3. Wait a few minutes and try again\n"
+                        "4. Check your API key is from a fresh project at aistudio.google.com"
+                    )
+                    st.stop()
 
 
     # ── Parse TSV ─────────────────────────────────────────────────────────────
