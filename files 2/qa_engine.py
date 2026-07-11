@@ -10,30 +10,10 @@ Run with:
 
 import io
 import os
-import sys
-import subprocess
 
 import streamlit as st
-
-# ── Auto-install google-genai if missing ──────────────────────────────────────
-try:
-    from google import genai
-except ImportError:
-    with st.spinner("Installing google-genai …"):
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "google-genai", "-q"]
-        )
-    from google import genai
-
-try:
-    import pdfplumber
-except ImportError:
-    with st.spinner("Installing pdfplumber …"):
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "pdfplumber", "-q"]
-        )
-    import pdfplumber
-
+from google import genai
+import pdfplumber
 import openpyxl
 from openpyxl.chart import BarChart, Reference
 from openpyxl.styles import (
